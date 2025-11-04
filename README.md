@@ -22,7 +22,12 @@ import { x402ResourceServer } from 'solana-x402-gateway';
 const app = express();
 app.use(express.json());
 
-// Apply payment requirement to routes
+// Apply x402 middleware to routes
+// This middleware will automatically:
+// 1. Check for X-PAYMENT header
+// 2. If missing, return HTTP 402 with payment details
+// 3. If present, verify payment and send transaction to blockchain
+// 4. Only call next() if payment is verified
 app.use(
   '/api',
   x402ResourceServer({
@@ -38,7 +43,7 @@ app.use(
   })
 );
 
-// Route that requires payment
+// These routes will only execute if payment is verified
 app.get('/api/data', (req, res) => {
   res.json({
     result: 'some data',
@@ -46,17 +51,11 @@ app.get('/api/data', (req, res) => {
   });
 });
 
-// Another route that requires payment
 app.get('/api/user/:id', (req, res) => {
   res.json({
     id: req.params.id,
     name: 'John Doe',
   });
-});
-
-// Public route - no payment required (outside /api)
-app.get('/info', (req, res) => {
-  res.json({ message: 'Free information' });
 });
 
 app.listen(3000, () => {
