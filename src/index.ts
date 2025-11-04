@@ -1,15 +1,26 @@
 /**
  * Solana x402 SDK - Main entry point
  *
- * This SDK provides middleware and utilities for integrating
- * x402 payment verification into your existing applications.
+ * Simple SDK to onboard x402 payment protocol
  */
 
-export { X402Middleware, X402Options } from './middleware';
-export { PaymentVerifier } from './paymentVerifier';
-export { PaymentState } from './paymentState';
-export { createSolanaRpcClient, SolanaRpcClient } from './rpcClient';
-export { generateReferenceKeypair } from './utils';
+// x402 Resource Server (main middleware)
+export {
+  x402ResourceServer,
+  type ResourceServerOptions,
+  type PaymentRequirementConfig,
+} from './resourceServer';
 
-// Re-export types
-export type { PaymentVerificationOptions } from './paymentVerifier';
+// Types
+export type {
+  PaymentRequirement,
+  PaymentRequiredResponse,
+  PaymentPayload,
+} from './types';
+
+// Client utilities (for creating Payment Payloads)
+export {
+  createPaymentPayload,
+  createXPaymentHeader,
+  createXPaymentHeaderFromTransaction,
+} from './client';

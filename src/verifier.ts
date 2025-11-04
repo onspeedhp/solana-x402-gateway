@@ -1,39 +1,36 @@
+/**
+ * Payment verifier - local on-chain verification
+ */
+
 import { address } from '@solana/kit';
+import {
+  PaymentPayload,
+  PaymentRequirement,
+  VerificationResponse,
+} from './types';
 
 // Type for the RPC client from @solana/kit
 type SolanaRpcApi = any;
 
-export interface PaymentVerificationOptions {
+export interface LocalVerificationOptions {
+  paymentPayload: PaymentPayload;
+  paymentRequirement: PaymentRequirement;
+  rpc: SolanaRpcApi;
+}
+
+/**
+ * Verify payment by reference - checks on-chain transaction
+ */
+interface VerifyPaymentByReferenceOptions {
   reference: string;
   mint: string;
   recipient: string;
   amount: number;
 }
 
-/**
- * Payment verifier class for checking Solana USDC payments
- */
-export class PaymentVerifier {
-  constructor(private rpc: SolanaRpcApi) {}
-
-  /**
-   * Verify a payment by checking if a transaction exists that transfers
-   * the required amount of tokens (mint) to the recipient, using the
-   * reference account as a unique identifier.
-   */
-  async verifyPayment(opts: PaymentVerificationOptions): Promise<boolean> {
-    return verifyPaymentByReference(this.rpc, opts);
-  }
-}
-
-/**
- * Verify a payment by checking if a transaction exists that transfers
- * the required amount of tokens (mint) to the recipient, using the
- * reference account as a unique identifier.
- */
-export async function verifyPaymentByReference(
+async function verifyPaymentByReference(
   rpc: SolanaRpcApi,
-  opts: PaymentVerificationOptions
+  opts: VerifyPaymentByReferenceOptions
 ): Promise<boolean> {
   try {
     // Step 1: Get signatures for the reference account
@@ -64,11 +61,6 @@ export async function verifyPaymentByReference(
       }
 
       // Step 4: Look for the token transfer in postTokenBalances
-      // We need to find a transfer where:
-      // - mint matches our configured mint
-      // - owner matches the merchant wallet
-      // - amount >= required amount
-
       const postBalances = tx.meta.postTokenBalances || [];
       const preBalances = tx.meta.preTokenBalances || [];
 
@@ -99,8 +91,7 @@ export async function verifyPaymentByReference(
       const merchantReceived = balanceChanges.get(merchantKey) || 0;
 
       if (merchantReceived >= opts.amount) {
-        // Also verify the reference account is involved in the transaction
-        // by checking account keys
+        // Verify the reference account is involved in the transaction
         const accountKeys = tx.transaction?.message?.accountKeys || [];
         const referenceInvolved = accountKeys.some(
           (key: any) => key.pubkey === opts.reference
@@ -115,9 +106,8 @@ export async function verifyPaymentByReference(
       const innerInstructions = tx.meta.innerInstructions || [];
       for (const inner of innerInstructions) {
         for (const ix of inner.instructions) {
-          // Type guard: check if instruction is parsed (not partially decoded)
           if ('parsed' in ix && ix.parsed) {
-            const parsed = ix.parsed as any; // Type assertion for parsed instruction
+            const parsed = ix.parsed as any;
             if (
               parsed.type === 'transfer' &&
               parsed.info?.mint === opts.mint &&
@@ -127,7 +117,6 @@ export async function verifyPaymentByReference(
                 parsed.info?.tokenAmount?.uiAmountString || '0'
               );
               if (transferAmount >= opts.amount) {
-                // Check if reference is in the transaction
                 const accountKeys = tx.transaction?.message?.accountKeys || [];
                 const referenceInvolved = accountKeys.some(
                   (key: any) => key.pubkey === opts.reference
@@ -146,5 +135,54 @@ export async function verifyPaymentByReference(
   } catch (error) {
     console.error('Payment verification error:', error);
     return false;
+  }
+}
+
+/**
+ * Verify payment locally (direct on-chain verification)
+ */
+export async function verifyPaymentLocally(
+  options: LocalVerificationOptions
+): Promise<VerificationResponse> {
+  const { paymentPayload, paymentRequirement, rpc } = options;
+
+  // Verify network match
+  if (paymentPayload.network !== paymentRequirement.network) {
+    return {
+      valid: false,
+      error: 'Network mismatch',
+    };
+  }
+
+  // Verify reference matches
+  if (paymentPayload.reference !== paymentRequirement.reference) {
+    return {
+      valid: false,
+      error: 'Reference mismatch',
+    };
+  }
+
+  // Verify payment on-chain
+  try {
+    const isValid = await verifyPaymentByReference(rpc, {
+      reference: paymentPayload.reference,
+      mint: paymentRequirement.mint,
+      recipient: paymentRequirement.recipient,
+      amount: parseFloat(paymentRequirement.amount),
+    });
+
+    if (!isValid) {
+      return {
+        valid: false,
+        error: 'Payment not found or invalid on-chain',
+      };
+    }
+
+    return { valid: true };
+  } catch (error) {
+    return {
+      valid: false,
+      error: `Verification error: ${error}`,
+    };
   }
 }
