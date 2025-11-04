@@ -4,8 +4,7 @@
 
 import { createSolanaRpc, devnet, mainnet, testnet } from '@solana/kit';
 
-// Use any type for now due to @solana/kit v5 type complexity
-export type SolanaRpcClient = any;
+export type SolanaRpcClient = ReturnType<typeof createSolanaRpc>;
 
 /**
  * Create a Solana RPC client for the specified network

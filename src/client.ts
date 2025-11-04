@@ -8,22 +8,16 @@ import { encodePaymentPayload } from './paymentPayload';
 
 /**
  * Create Payment Payload from signed transaction and payment requirement
- * Signed transaction should be serialized (Uint8Array) and Base64 encoded
+ * Signed transaction MUST be Base64 encoded string
  * This is what the client sends in the X-PAYMENT header
  */
 export function createPaymentPayload(
-  signedTransaction: Uint8Array | string, // Serialized transaction or Base64 string
+  signedTransactionBase64: string, // Base64 encoded signed transaction
   paymentRequirement: PaymentRequirement
 ): PaymentPayload {
-  // If already Base64 string, use it; otherwise encode
-  const transactionBase64 =
-    typeof signedTransaction === 'string'
-      ? signedTransaction
-      : Buffer.from(signedTransaction).toString('base64');
-
   return {
     network: paymentRequirement.network,
-    transaction: transactionBase64,
+    transaction: signedTransactionBase64,
     reference: paymentRequirement.reference,
   };
 }
@@ -38,12 +32,12 @@ export function createXPaymentHeader(paymentPayload: PaymentPayload): string {
 
 /**
  * Convenience function to create X-PAYMENT header from signed transaction and payment requirement
- * Signed transaction should be serialized (Uint8Array) and will be Base64 encoded
+ * Signed transaction MUST be Base64 encoded string
  */
 export function createXPaymentHeaderFromTransaction(
-  signedTransaction: Uint8Array | string,
+  signedTransactionBase64: string, // Base64 encoded signed transaction
   paymentRequirement: PaymentRequirement
 ): string {
-  const payload = createPaymentPayload(signedTransaction, paymentRequirement);
+  const payload = createPaymentPayload(signedTransactionBase64, paymentRequirement);
   return createXPaymentHeader(payload);
 }

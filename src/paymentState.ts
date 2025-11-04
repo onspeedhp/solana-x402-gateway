@@ -1,10 +1,10 @@
 /**
  * In-memory store for verified payment references with TTL.
  * Key: reference (base58 public key string)
- * Value: expiry timestamp (milliseconds since epoch)
+ * Value: { expiry: number, signature: string }
  */
 export class PaymentState {
-  private store: Map<string, number>;
+  private store: Map<string, { expiry: number; signature: string }>;
   private ttlMs: number;
 
   constructor(ttlSeconds: number) {
@@ -16,12 +16,12 @@ export class PaymentState {
    * Check if a reference is paid and not expired
    */
   isPaid(reference: string): boolean {
-    const expiry = this.store.get(reference);
-    if (!expiry) {
+    const entry = this.store.get(reference);
+    if (!entry) {
       return false;
     }
 
-    if (Date.now() > expiry) {
+    if (Date.now() > entry.expiry) {
       // Expired, remove it
       this.store.delete(reference);
       return false;
@@ -31,18 +31,19 @@ export class PaymentState {
   }
 
   /**
-   * Mark a reference as paid
+   * Get signature for a paid reference
    */
-  markPaid(reference: string): void {
-    const expiry = Date.now() + this.ttlMs;
-    this.store.set(reference, expiry);
+  getSignature(reference: string): string | null {
+    const entry = this.store.get(reference);
+    return entry?.signature || null;
   }
 
   /**
-   * Remove a reference (manual cleanup)
+   * Mark a reference as paid with transaction signature
    */
-  remove(reference: string): void {
-    this.store.delete(reference);
+  markPaid(reference: string, signature: string): void {
+    const expiry = Date.now() + this.ttlMs;
+    this.store.set(reference, { expiry, signature });
   }
 
   /**
@@ -51,19 +52,12 @@ export class PaymentState {
   cleanup(): number {
     const now = Date.now();
     let cleaned = 0;
-    for (const [ref, expiry] of this.store.entries()) {
-      if (now > expiry) {
+    for (const [ref, entry] of this.store.entries()) {
+      if (now > entry.expiry) {
         this.store.delete(ref);
         cleaned++;
       }
     }
     return cleaned;
-  }
-
-  /**
-   * Get current size (for debugging)
-   */
-  size(): number {
-    return this.store.size;
   }
 }

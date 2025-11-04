@@ -23,7 +23,6 @@ import { Request, Response, NextFunction } from 'express';
 import {
   generateKeyPair,
   getAddressFromPublicKey,
-  type Address,
 } from '@solana/kit';
 import { PaymentState } from './paymentState';
 import { createSolanaRpcClient } from './rpcClient';
@@ -93,9 +92,8 @@ export function x402ResourceServer(options: ResourceServerOptions) {
     }
 
     try {
-      // Parse Payment Payload from X-PAYMENT header
+      // Parse and validate payment payload
       const paymentPayload = parsePaymentPayload(xPaymentHeader);
-
       if (!validatePaymentPayload(paymentPayload)) {
         logger(`Invalid Payment Payload format`);
         return await sendPaymentRequiredResponse(req, res, options);
@@ -107,7 +105,6 @@ export function x402ResourceServer(options: ResourceServerOptions) {
         paymentRequirements,
         network
       );
-
       if (!paymentRequirement) {
         logger(`No matching payment requirement found`);
         return await sendPaymentRequiredResponse(req, res, options);
@@ -117,15 +114,12 @@ export function x402ResourceServer(options: ResourceServerOptions) {
       const cacheKey = paymentPayload.reference;
       if (paymentState.isPaid(cacheKey)) {
         logger(`Payment ${cacheKey} already verified (cached)`);
-        // For cached payments, we still need to extract signature from payload
-        // The transaction field contains the signed transaction, but we need the signature
-        // For now, use a placeholder - in production, you might want to store signature in cache
+        const cachedSignature = paymentState.getSignature(cacheKey);
         return await handleVerifiedPayment(
           req,
           res,
           next,
-          paymentPayload,
-          'cached'
+          cachedSignature || 'cached'
         );
       }
 
@@ -138,7 +132,6 @@ export function x402ResourceServer(options: ResourceServerOptions) {
         paymentRequirement,
         rpcClient
       );
-
       if (!verificationResult.valid) {
         logger(`Transaction verification failed: ${verificationResult.error}`);
         return await sendPaymentRequiredResponse(req, res, options);
@@ -152,7 +145,6 @@ export function x402ResourceServer(options: ResourceServerOptions) {
         paymentPayload.transaction,
         rpcClient
       );
-
       if (!sendResult.success) {
         logger(`Transaction send failed: ${sendResult.error}`);
         return await sendPaymentRequiredResponse(req, res, options);
@@ -165,7 +157,6 @@ export function x402ResourceServer(options: ResourceServerOptions) {
         paymentRequirement,
         rpcClient
       );
-
       if (!isConfirmed) {
         logger(
           `Transaction confirmation failed for signature: ${sendResult.signature}`
@@ -173,20 +164,12 @@ export function x402ResourceServer(options: ResourceServerOptions) {
         return await sendPaymentRequiredResponse(req, res, options);
       }
 
-      // Payment verified and confirmed, mark as paid
+      // Payment verified and confirmed
       logger(
         `Payment verified and confirmed for reference: ${paymentPayload.reference}`
       );
-      paymentState.markPaid(cacheKey);
-
-      // Handle verified payment
-      return await handleVerifiedPayment(
-        req,
-        res,
-        next,
-        paymentPayload,
-        sendResult.signature
-      );
+      paymentState.markPaid(cacheKey, sendResult.signature);
+      return await handleVerifiedPayment(req, res, next, sendResult.signature);
     } catch (error) {
       logger(`Error processing payment: ${error}`);
       return await sendPaymentRequiredResponse(req, res, options);
@@ -231,7 +214,6 @@ async function handleVerifiedPayment(
   req: Request,
   res: Response,
   next: NextFunction,
-  paymentPayload: PaymentPayload,
   transactionSignature: string
 ): Promise<void> {
   // Add X-PAYMENT-RESPONSE header with settlement response
@@ -250,25 +232,21 @@ async function handleVerifiedPayment(
 
 /**
  * Find matching payment requirement based on payment payload
+ * Returns the first requirement if network matches
  */
 function findMatchingPaymentRequirement(
   paymentPayload: PaymentPayload,
   paymentRequirements: PaymentRequirementConfig[],
   network: string
 ): PaymentRequirement | null {
-  if (paymentRequirements.length === 0) {
+  if (
+    paymentRequirements.length === 0 ||
+    paymentPayload.network !== network
+  ) {
     return null;
   }
 
-  // Verify network matches
-  if (paymentPayload.network !== network) {
-    return null;
-  }
-
-  // Use first requirement (since we only support one payment method)
   const config = paymentRequirements[0];
-
-  // Create PaymentRequirement with reference from payload
   return {
     network,
     mint: config.mint,
